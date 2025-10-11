@@ -1,0 +1,22 @@
+       stock strategy return final_value
+平安银行(000001)    RSI策略  1.44%     101,440
+ 万科A(000002)    RSI策略 -5.47%      94,532
+招商银行(600036)    RSI策略  2.67%     102,666
+
+
+
+
+提高risk_percent - 全仓操作
+降低相同条件下的rsi_strength指标 - 重新定义RSI强度的计算方法--指数增长
+
+怎么定义exponential growth的函数
+input范围：0-30
+output:0-1
+
+f(x) = (-(x-30)/30)^2
+(-30)^k=1
+(0)^k=0
+
+; f(x) = 4^x
+
+买入数量 = available_cash*output
