@@ -62,7 +62,6 @@
 #### 单策略回测实战
 - [ma_strategy.ipynb](ma_strategy.ipynb) - 双均线策略Jupyter实现
 - [双均线策略量化回测教程.ipynb](双均线策略量化回测教程.ipynb) - 双均线策略完整教程
-- [quant_strategies_tutorial.ipynb](quant_strategies_tutorial.ipynb) - 量化策略教程
 
 ### 关键概念
 - Backtrader框架基础
@@ -78,20 +77,19 @@
 
 ### 核心文件
 
-#### 风险管理
-- [dynamic_position_size0829.py](dynamic_position_size0829.py) - 动态仓位管理
+#### 动态仓位管理
+- [动态买卖数量0829.py](动态买卖数量0829.py) - 动态仓位与买卖数量管理
 
 #### 策略优化与调参
-- [多指标策略1006.py](多指标策略1006.py) - 多指标RSI策略优化版本
-- [batch_backtest.py](batch_backtest.py) - 批量回测框架
+- [动态买卖数量+多指标策略1006.py](动态买卖数量+多指标策略1006.py) - 动态仓位 + 多指标组合策略
 
 ### 关键概念
-- 动态仓位管理
+- 动态仓位管理：基于RSI强度动态调整买入数量
 - 止盈止损机制
 - 参数优化（Grid Search）
 - 回撤与最大亏损的区别
 - 风险收益比
-- 多指标组合过滤
+- 多指标组合过滤（RSI + MA + Volume）
 
 ```python
 # Grid Search调参示例
@@ -117,12 +115,9 @@ for p in period_list:
 
 #### 多策略系统
 - [multi-strategy.py](multi-strategy.py) - 多策略组合回测
-- [万丰奥威多策略回测.py](万丰奥威多策略回测.py) - 个股多策略回测案例
 
 #### 多股票系统
-- [stock_scanner.py](stock_scanner.py) - 股票扫描与筛选
-- [multi_stock_backtest.py](multi_stock_backtest.py) - 多股票回测系统
-- [multi_stock_bt.py](multi_stock_bt.py) - 多股票综合评分策略（最新）
+- [multi_stock_bt.py](multi_stock_bt.py) - 多股票综合评分策略
 
 ### 关键概念
 - 马丁格尔策略（加仓策略）
@@ -222,22 +217,17 @@ quant/
 ├── 阶段三：单策略回测/
 │   ├── backtrader_intro.ipynb                   # Backtrader入门
 │   ├── ma_strategy.ipynb                        # 双均线策略
-│   ├── 双均线策略量化回测教程.ipynb                # 双均线教程
-│   └── quant_strategies_tutorial.ipynb          # 策略教程
+│   └── 双均线策略量化回测教程.ipynb                # 双均线教程
 │
 ├── 阶段四：策略优化/
-│   ├── dynamic_position_size0829.py             # 动态仓位
-│   ├── batch_backtest.py                        # 批量回测
-│   └── 多指标策略1006.py                         # 多指标优化
+│   ├── 动态买卖数量0829.py                       # 动态仓位管理
+│   └── 动态买卖数量+多指标策略1006.py              # 动态仓位+多指标
 │
 ├── 阶段五：高级策略/
 │   ├── martingale_simple.py                     # 马丁格尔简单版
 │   ├── martingale_strategy.py                   # 马丁格尔完整版
 │   ├── multi-strategy.py                        # 多策略组合
-│   ├── 万丰奥威多策略回测.py                      # 个股案例
-│   ├── stock_scanner.py                         # 股票扫描
-│   ├── multi_stock_backtest.py                  # 多股回测
-│   └── multi_stock_bt.py                        # 综合评分策略
+│   └── multi_stock_bt.py                        # 多股票综合评分
 │
 └── 阶段六：多重滤波器/
     ├── 多重滤波器买入评分1011.py                  # 多重滤波器策略
