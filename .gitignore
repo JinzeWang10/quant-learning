@@ -52,3 +52,19 @@ Thumbs.db
 *.tmp
 temp/
 tmp/
+
+# Machine Learning models
+*.pkl
+*.h5
+*.model
+*.joblib
+
+# Stock data
+stock_data/
+*.csv
+*.xlsx
+*.xls
+
+# Trading charts
+trade_*.png
+portfolio_*.png
