@@ -8,7 +8,12 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(if [ -f \"rf_model_ts.pkl\" ])",
+      "Bash(then rm rf_model_ts.pkl)",
+      "Bash(else echo \"模型文件不存在\")",
+      "Bash(fi)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []
