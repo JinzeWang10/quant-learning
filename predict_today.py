@@ -38,6 +38,13 @@ def update_stock_data_incremental(code, csv_path, max_days=10):
 
     返回:
         DataFrame: 更新后的完整数据
+
+    注意:
+        - 支持盘中运行（9:30-15:00）
+        - 如果今日数据不完整（只有开盘价），会用开盘价临时填充close/high/low
+        - 这不影响预测，因为特征计算只依赖：
+          1) 历史特征：使用昨日及之前数据（shift(1)）
+          2) 开盘特征：只需要今日开盘价
     """
     try:
         # 1. 读取现有CSV数据
@@ -88,8 +95,22 @@ def update_stock_data_incremental(code, csv_path, max_days=10):
         for col in ['open', 'high', 'low', 'close', 'volume']:
             df_new[col] = pd.to_numeric(df_new[col], errors='coerce')
 
-        df_new = df_new.dropna(subset=['open', 'high', 'low', 'close', 'volume'])
-        df_new = df_new[df_new['volume'] > 0].copy()
+        # 处理盘中不完整数据：如果是今日数据且只有开盘价，用开盘价填充收盘价
+        today = datetime.now().date()
+        for idx, row in df_new.iterrows():
+            if row['date'].date() == today and pd.notna(row['open']):
+                # 盘中数据：用开盘价填充其他价格（临时值，不影响特征计算）
+                if pd.isna(row['close']) or row['close'] == 0:
+                    df_new.loc[idx, 'close'] = row['open']
+                if pd.isna(row['high']) or row['high'] == 0:
+                    df_new.loc[idx, 'high'] = row['open']
+                if pd.isna(row['low']) or row['low'] == 0:
+                    df_new.loc[idx, 'low'] = row['open']
+                if pd.isna(row['volume']) or row['volume'] == 0:
+                    df_new.loc[idx, 'volume'] = 1  # 设置为1避免除零错误
+
+        df_new = df_new.dropna(subset=['open', 'close'])  # 只要求有开盘价和收盘价
+        df_new = df_new[df_new['open'] > 0].copy()  # 开盘价必须大于0
 
         if len(df_new) == 0:
             return df_old
