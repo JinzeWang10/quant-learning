@@ -13,7 +13,8 @@
       "Bash(then rm rf_model_ts.pkl)",
       "Bash(else echo \"模型文件不存在\")",
       "Bash(fi)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []

@@ -910,6 +910,29 @@ def main():
     # 3.2 训练随机森林模型
     model, feature_cols = train_rf_model(combined, feature_cols)
 
+    # 3.3 保存模型供每日预测使用
+    print(f"\n{'='*80}")
+    print("保存模型...")
+    print(f"{'='*80}")
+
+    import pickle
+    model_data = {
+        'model': model,
+        'feature_cols': feature_cols,
+        'stock_pool': stock_pool,
+        'train_date': datetime.now().strftime('%Y-%m-%d'),
+        'train_start': TRAIN_START,
+        'train_end': TRAIN_END
+    }
+
+    with open('rf_model.pkl', 'wb') as f:
+        pickle.dump(model_data, f)
+
+    print("✓ 模型已保存到: rf_model.pkl")
+    print(f"  - 股票池: {len(stock_pool)} 只")
+    print(f"  - 特征数: {len(feature_cols)} 个")
+    print(f"  - 训练时间: {model_data['train_date']}")
+
     # ===== 第四步：运行回测 =====
     final_value, total_return = run_backtest(
         model=model,
