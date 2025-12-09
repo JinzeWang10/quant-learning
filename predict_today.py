@@ -7,131 +7,222 @@
 3. 生成Excel文件记录所有股票的预测结果
 
 运行: python predict_today.py
+
+数据源:
+- 历史数据下载: baostock (download_stock_data_baostock.py)
+- 增量更新: akshare (本脚本) - 支持盘中实时数据获取
 """
 
-import baostock as bs
+import akshare as ak
 import pandas as pd
 import pickle
 import os
 from datetime import datetime, timedelta
 import warnings
+import time
 
 warnings.filterwarnings('ignore')
 
 
-def format_stock_code(code):
-    """转换股票代码格式"""
-    if code.startswith('6'):
-        return f'sh.{code}'
-    else:
-        return f'sz.{code}'
+# ak.stock_zh_a_hist.__globals__['url_stock_zh_a_hist'] = \
+#     "http://push2his.eastmoney.com/api/qt/stock/kline/get"
+
+# 全局变量：缓存实时行情数据
+_spot_data_cache = None
+_cache_time = None
 
 
-def update_stock_data_incremental(code, csv_path, max_days=10):
+def get_spot_data():
     """
-    增量更新股票数据（只获取最新数据追加到CSV）
+    获取所有A股实时行情（使用缓存避免重复请求）
+
+    返回:
+        DataFrame: 包含所有股票实时行情的数据
+    """
+    global _spot_data_cache, _cache_time
+
+    # 如果缓存存在且在5分钟内，直接返回缓存
+    if _spot_data_cache is not None and _cache_time is not None:
+        if (datetime.now() - _cache_time).total_seconds() < 300:
+            return _spot_data_cache
+
+    # 否则重新获取
+    try:
+        print("  📡 获取实时行情数据（新浪接口）...")
+        _spot_data_cache = ak.stock_zh_a_spot_em()
+        _cache_time = datetime.now()
+        print(f"  ✓ 获取成功，共 {len(_spot_data_cache)} 只股票")
+        return _spot_data_cache
+    except Exception as e:
+        print(f"  ✗ 获取实时行情失败: {str(e)[:80]}")
+        return None
+
+
+def update_stock_data_incremental(code, csv_path, spot_data=None, max_days=10):
+    """
+    使用新浪实时行情 + 历史数据接口增量更新股票数据
+
+    策略:
+    1. 如果CSV存在且最新日期是昨日 -> 从实时行情获取今日开盘数据，追加到CSV
+    2. 如果CSV不存在或数据较老 -> 使用历史接口（会触发限流，但次数少）
 
     参数:
-        code: 股票代码
+        code: 股票代码 (6位代码，如 '000001', '600036')
         csv_path: CSV文件路径
+        spot_data: 实时行情DataFrame（提前获取，避免重复请求）
         max_days: 最多获取最近几天的数据
 
     返回:
         DataFrame: 更新后的完整数据
 
-    注意:
-        - 支持盘中运行（9:30-15:00）
-        - 如果今日数据不完整（只有开盘价），会用开盘价临时填充close/high/low
-        - 这不影响预测，因为特征计算只依赖：
-          1) 历史特征：使用昨日及之前数据（shift(1)）
-          2) 开盘特征：只需要今日开盘价
+    优势:
+        - 使用新浪实时行情接口（一次请求获取所有股票，避免频繁请求）
+        - 只在必要时才调用历史接口
+        - 支持盘中运行（9:30-15:00）获取当日实时数据
     """
+    df_old = None
+
     try:
         # 1. 读取现有CSV数据
         if os.path.exists(csv_path):
             df_old = pd.read_csv(csv_path)
             df_old['date'] = pd.to_datetime(df_old['date'])
             last_date = df_old['date'].max()
-
-            # 计算需要获取的起始日期（从最后一天的下一天开始）
-            start_date = (last_date + timedelta(days=1)).strftime('%Y-%m-%d')
         else:
-            # 如果文件不存在，获取最近max_days天的数据
             df_old = None
-            start_date = (datetime.now() - timedelta(days=max_days + 5)).strftime('%Y-%m-%d')
+            last_date = None
 
-        end_date = datetime.now().strftime('%Y-%m-%d')
-
-        # 如果已是最新，直接返回
-        if df_old is not None and start_date > end_date:
-            return df_old
-
-        # 2. 获取增量数据
-        bs_code = format_stock_code(code)
-        rs = bs.query_history_k_data_plus(
-            bs_code,
-            "date,open,high,low,close,volume",
-            start_date=start_date,
-            end_date=end_date,
-            frequency="d",
-            adjustflag="3"  # 后复权
-        )
-
-        if rs.error_code != '0':
-            return df_old
-
-        # 获取新数据
-        data_list = []
-        while rs.error_code == '0' and rs.next():
-            data_list.append(rs.get_row_data())
-
-        if not data_list:
-            return df_old
-
-        # 转换为DataFrame
-        df_new = pd.DataFrame(data_list, columns=rs.fields)
-        df_new['date'] = pd.to_datetime(df_new['date'])
-
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df_new[col] = pd.to_numeric(df_new[col], errors='coerce')
-
-        # 处理盘中不完整数据：如果是今日数据且只有开盘价，用开盘价填充收盘价
         today = datetime.now().date()
-        for idx, row in df_new.iterrows():
-            if row['date'].date() == today and pd.notna(row['open']):
-                # 盘中数据：用开盘价填充其他价格（临时值，不影响特征计算）
-                if pd.isna(row['close']) or row['close'] == 0:
-                    df_new.loc[idx, 'close'] = row['open']
-                if pd.isna(row['high']) or row['high'] == 0:
-                    df_new.loc[idx, 'high'] = row['open']
-                if pd.isna(row['low']) or row['low'] == 0:
-                    df_new.loc[idx, 'low'] = row['open']
-                if pd.isna(row['volume']) or row['volume'] == 0:
-                    df_new.loc[idx, 'volume'] = 1  # 设置为1避免除零错误
+        yesterday = today - timedelta(days=1)
 
-        df_new = df_new.dropna(subset=['open', 'close'])  # 只要求有开盘价和收盘价
-        df_new = df_new[df_new['open'] > 0].copy()  # 开盘价必须大于0
+        # 2. 判断是否需要更新
+        need_history_data = False
+        need_today_data = False
 
-        if len(df_new) == 0:
+        if last_date is None:
+            # CSV不存在，需要获取历史数据
+            need_history_data = True
+            start_date = (datetime.now() - timedelta(days=max_days + 5)).strftime('%Y%m%d')
+        elif last_date.date() < yesterday:
+            # 数据较老，需要获取历史数据
+            need_history_data = True
+            start_date = last_date.strftime('%Y%m%d')
+        elif last_date.date() == yesterday:
+            # 最新数据是昨日，只需要获取今日实时数据
+            need_today_data = True
+        else:
+            # 数据已是最新
             return df_old
 
-        # 3. 合并数据
-        if df_old is not None:
-            df_merged = pd.concat([df_old, df_new], ignore_index=True)
-            # 去重（防止重复日期）
-            df_merged = df_merged.drop_duplicates(subset=['date'], keep='last')
-            df_merged = df_merged.sort_values('date').reset_index(drop=True)
-        else:
-            df_merged = df_new
+        # 3. 获取今日实时数据（优先，避免频繁请求）
+        if need_today_data and spot_data is not None:
+            try:
+                stock_info = spot_data[spot_data['代码'] == code]
+                if len(stock_info) > 0:
+                    row = stock_info.iloc[0]
+                    # 提取今日数据
+                    today_data = {
+                        'date': pd.Timestamp(today),
+                        'open': float(row['今开']) if pd.notna(row['今开']) and row['今开'] != '-' else None,
+                        'close': float(row['最新价']) if pd.notna(row['最新价']) and row['最新价'] != '-' else None,
+                        'high': float(row['最高']) if pd.notna(row['最高']) and row['最高'] != '-' else None,
+                        'low': float(row['最低']) if pd.notna(row['最低']) and row['最低'] != '-' else None,
+                        'volume': float(row['成交量']) if pd.notna(row['成交量']) and row['成交量'] != '-' else 0
+                    }
 
-        # 4. 保存更新后的数据
-        df_merged.to_csv(csv_path, index=False, encoding='utf-8-sig')
+                    # 处理盘中不完整数据
+                    if today_data['open'] is not None and today_data['open'] > 0:
+                        if today_data['close'] is None or today_data['close'] == 0:
+                            today_data['close'] = today_data['open']
+                        if today_data['high'] is None or today_data['high'] == 0:
+                            today_data['high'] = today_data['open']
+                        if today_data['low'] is None or today_data['low'] == 0:
+                            today_data['low'] = today_data['open']
+                        if today_data['volume'] == 0:
+                            today_data['volume'] = 1
 
-        return df_merged
+                        # 追加今日数据
+                        df_today = pd.DataFrame([today_data])
+                        df_merged = pd.concat([df_old, df_today], ignore_index=True)
+                        df_merged = df_merged.sort_values('date').reset_index(drop=True)
+
+                        # 保存
+                        df_merged.to_csv(csv_path, index=False, encoding='utf-8-sig')
+                        return df_merged
+            except Exception as e:
+                print(f"  ⚠️  {code} 实时数据获取失败，尝试历史接口: {str(e)[:50]}")
+                need_history_data = True
+
+        # 4. 如果需要历史数据，使用历史接口（会触发限流，但次数少）
+        if need_history_data:
+            end_date = datetime.now().strftime('%Y%m%d')
+
+            # 添加延时
+            time.sleep(0.3)
+
+            df_new = ak.stock_zh_a_hist(
+                symbol=code,
+                period="daily",
+                start_date=start_date,
+                end_date=end_date,
+                adjust="qfq"  # 前复权
+            )
+
+            if df_new is None or len(df_new) == 0:
+                return df_old
+
+            # 数据清洗：标准化列名
+            column_mapping = {
+                '日期': 'date',
+                '开盘': 'open',
+                '收盘': 'close',
+                '最高': 'high',
+                '最低': 'low',
+                '成交量': 'volume'
+            }
+
+            df_new = df_new.rename(columns=column_mapping)
+            required_cols = ['date', 'open', 'high', 'low', 'close', 'volume']
+            df_new = df_new[required_cols].copy()
+            df_new['date'] = pd.to_datetime(df_new['date'])
+
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                df_new[col] = pd.to_numeric(df_new[col], errors='coerce')
+
+            # 处理盘中不完整数据
+            for idx, row in df_new.iterrows():
+                if row['date'].date() == today and pd.notna(row['open']):
+                    if pd.isna(row['close']) or row['close'] == 0:
+                        df_new.loc[idx, 'close'] = row['open']
+                    if pd.isna(row['high']) or row['high'] == 0:
+                        df_new.loc[idx, 'high'] = row['open']
+                    if pd.isna(row['low']) or row['low'] == 0:
+                        df_new.loc[idx, 'low'] = row['open']
+                    if pd.isna(row['volume']) or row['volume'] == 0:
+                        df_new.loc[idx, 'volume'] = 1
+
+            df_new = df_new.dropna(subset=['open', 'close'])
+            df_new = df_new[df_new['open'] > 0].copy()
+
+            if len(df_new) == 0:
+                return df_old
+
+            # 合并数据
+            if df_old is not None:
+                df_merged = pd.concat([df_old, df_new], ignore_index=True)
+                df_merged = df_merged.drop_duplicates(subset=['date'], keep='last')
+                df_merged = df_merged.sort_values('date').reset_index(drop=True)
+            else:
+                df_merged = df_new.sort_values('date').reset_index(drop=True)
+
+            # 保存
+            df_merged.to_csv(csv_path, index=False, encoding='utf-8-sig')
+            return df_merged
+
+        return df_old
 
     except Exception as e:
-        print(f"  ✗ {code} 更新失败: {str(e)[:50]}")
-        # 如果更新失败，返回原数据
+        print(f"  ✗ {code} 更新失败: {str(e)[:80]}")
         if df_old is not None:
             return df_old
         return None
@@ -256,13 +347,9 @@ def predict_today():
     print(f"  ✓ 股票池: {len(stock_pool)} 只")
     print(f"  ✓ 特征数: {len(feature_cols)} 个")
 
-    # 2. 登录 baostock
-    print(f"\n[2/4] 🔐 登录 baostock...")
-    lg = bs.login()
-    if lg.error_code != '0':
-        print(f"  ❌ 登录失败: {lg.error_msg}")
-        return
-    print(f"  ✓ 登录成功")
+    # 2. AkShare无需登录，直接开始更新
+    print(f"\n[2/4] 🔌 使用AkShare数据源（支持盘中实时数据）...")
+    print(f"  ✓ AkShare无需登录，直接获取数据")
 
     try:
         # 3. 增量更新所有股票数据
@@ -274,6 +361,9 @@ def predict_today():
         for i, feat in enumerate(feature_cols, 1):
             print(f"    {i}. {feat}")
         print()
+
+        # 优先获取实时行情（一次性获取所有股票，避免频繁请求）
+        spot_data = get_spot_data()
 
         predictions = []
         success_count = 0
@@ -289,8 +379,8 @@ def predict_today():
             if idx % 10 == 0 or idx == 1:
                 print(f"  进度: {idx}/{total} ({idx/total*100:.1f}%) - {code} {name}")
 
-            # 增量更新数据
-            df = update_stock_data_incremental(code, csv_path, max_days=10)
+            # 增量更新数据（传入实时行情数据，避免重复请求）
+            df = update_stock_data_incremental(code, csv_path, spot_data=spot_data, max_days=10)
 
             if df is None or len(df) < 60:
                 fail_count += 1
@@ -327,8 +417,6 @@ def predict_today():
                 if not first_error_shown:
                     print(f"\n  ⚠️  首个失败案例: {code} {name}")
                     print(f"      原因: 特征计算后所有行都包含NaN")
-                    print(f"      原始行数: {len(calculate_features(update_stock_data_incremental(code, csv_path, max_days=10), for_training=False))}")
-                    print(f"      去除NaN后: 0")
                     first_error_shown = True
                 continue
 
@@ -361,17 +449,14 @@ def predict_today():
             # 显示第一个成功案例的详细信息
             if success_count == 1:
                 print(f"\n  ✅ 首个成功案例: {code} {name}")
-                print(f"      CSV行数: {len(update_stock_data_incremental(code, csv_path, max_days=10))}")
-                print(f"      特征计算后: {len(calculate_features(update_stock_data_incremental(code, csv_path, max_days=10), for_training=False))}")
-                print(f"      去除NaN后: {len(df)}")
+                print(f"      CSV行数: {len(df)}")
                 print(f"      最新日期: {latest['date'].strftime('%Y-%m-%d')}")
                 print(f"      预测概率: {prob:.2%}\n")
 
         print(f"\n  ✓ 数据更新完成: 成功 {success_count}/{total}, 失败 {fail_count}")
 
     finally:
-        bs.logout()
-        print(f"  ✓ 已登出 baostock")
+        pass  # AkShare无需登出
 
     if len(predictions) == 0:
         print(f"\n❌ 无有效预测数据")
