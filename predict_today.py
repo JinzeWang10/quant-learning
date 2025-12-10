@@ -11,6 +11,10 @@
 数据源:
 - 历史数据下载: baostock (download_stock_data_baostock.py)
 - 增量更新: akshare (本脚本) - 支持盘中实时数据获取
+
+配置:
+- 从 config.py 读取配置参数
+- 如果没有 config.py，使用默认参数
 """
 
 import akshare as ak
@@ -21,7 +25,15 @@ from datetime import datetime, timedelta
 import warnings
 import time
 
-warnings.filterwarnings('ignore')
+# 尝试导入配置文件
+try:
+    import config
+    USE_CONFIG = True
+    if not config.SHOW_WARNINGS:
+        warnings.filterwarnings('ignore')
+except ImportError:
+    USE_CONFIG = False
+    warnings.filterwarnings('ignore')
 
 
 # ak.stock_zh_a_hist.__globals__['url_stock_zh_a_hist'] = \

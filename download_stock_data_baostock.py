@@ -459,18 +459,109 @@ def test_single_stock():
 
 
 def main():
-    """主函数"""
+    """主函数 - 从config.py读取配置"""
 
-    print("\n请选择运行模式:")
-    print("1. 测试单只股票 (推荐首次使用)")
-    print("2. 下载指数成分股 (推荐)")
-    print("3. 使用自定义股票池")
+    # 尝试导入配置文件
+    try:
+        import config
+        print("\n✓ 已加载配置文件 config.py")
 
-    choice = input("\n请输入选项 (1/2/3，直接回车默认2): ").strip() or "2"
+        # 验证配置
+        if not config.validate_config():
+            print("\n请先修改 config.py 文件，确保配置正确")
+            return
 
-    if choice == "1":
-        test_single_stock()
-        return
+        # 从配置文件获取参数
+        stock_pool = config.get_stock_pool()
+        start_date = config.DOWNLOAD_START_DATE
+        end_date = config.DOWNLOAD_END_DATE
+        output_dir = config.DATA_DIR
+        download_index = config.DOWNLOAD_INDEX
+
+        print(f"\n✓ 使用配置:")
+        print(f"  股票池: {config.STOCK_POOL_TYPE} ({len(stock_pool)}只)")
+        print(f"  时间范围: {start_date} ~ {end_date}")
+        print(f"  保存目录: {output_dir}")
+
+    except ImportError:
+        print("\n⚠️  未找到 config.py，使用交互模式")
+        print("\n请选择运行模式:")
+        print("1. 测试单只股票 (推荐首次使用)")
+        print("2. 下载指数成分股 (推荐)")
+        print("3. 使用自定义股票池")
+
+        choice = input("\n请输入选项 (1/2/3，直接回车默认2): ").strip() or "2"
+
+        if choice == "1":
+            test_single_stock()
+            return
+
+        # 登录baostock
+        print("\n正在登录baostock系统...")
+        lg = bs.login()
+        if lg.error_code != '0':
+            print(f"✗ 登录失败: {lg.error_msg}")
+            return
+        print(f"✓ 登录成功")
+
+        try:
+            if choice == "2":
+                # 下载指数成分股
+                print("\n请选择指数:")
+                print("1. 中证100 (100只大盘蓝筹)")
+                print("2. 沪深300 (300只大中盘)")
+                print("3. 中证500 (500只中小盘)")
+
+                index_choice = input("\n请输入选项 (1/2/3，直接回车默认1): ").strip() or "1"
+
+                if index_choice == "1":
+                    index_code = 'sh.000903'
+                    index_name = '中证100'
+                elif index_choice == "2":
+                    index_code = 'sh.000300'
+                    index_name = '沪深300'
+                elif index_choice == "3":
+                    index_code = 'sh.000905'
+                    index_name = '中证500'
+                else:
+                    print("无效选择，使用默认中证100")
+                    index_code = 'sh.000903'
+                    index_name = '中证100'
+
+                # 获取成分股
+                stock_pool = get_index_constituent_stocks(index_code=index_code)
+
+                if stock_pool is None or len(stock_pool) == 0:
+                    print("\n✗ 获取成分股失败")
+                    return
+
+                print(f"\n✓ 成功获取{index_name}成分股: {len(stock_pool)}只")
+
+            else:
+                # 使用自定义股票池
+                print("\n使用自定义股票池...")
+                stock_pool = get_custom_stock_pool()
+
+        except Exception as e:
+            print(f"\n✗ 初始化失败: {e}")
+            bs.logout()
+            return
+
+        # 定义股票池（仅在choice=3时使用）
+        def get_custom_stock_pool():
+            return {
+            '000001': '平安银行',
+            '600036': '招商银行',
+            '600519': '贵州茅台',
+            '000858': '五粮液',
+            '601318': '中国平安',
+            }
+
+        # 下载参数
+        start_date = "2022-01-01"
+        end_date = "2025-11-21"
+        output_dir = "stock_data"
+        download_index = True
 
     # 登录baostock
     print("\n正在登录baostock系统...")
@@ -479,155 +570,6 @@ def main():
         print(f"✗ 登录失败: {lg.error_msg}")
         return
     print(f"✓ 登录成功")
-
-    try:
-        if choice == "2":
-            # 下载指数成分股
-            print("\n请选择指数:")
-            print("1. 中证100 (100只大盘蓝筹)")
-            print("2. 沪深300 (300只大中盘)")
-            print("3. 中证500 (500只中小盘)")
-
-            index_choice = input("\n请输入选项 (1/2/3，直接回车默认1): ").strip() or "1"
-
-            if index_choice == "1":
-                index_code = 'sh.000903'
-                index_name = '中证100'
-            elif index_choice == "2":
-                index_code = 'sh.000300'
-                index_name = '沪深300'
-            elif index_choice == "3":
-                index_code = 'sh.000905'
-                index_name = '中证500'
-            else:
-                print("无效选择，使用默认中证100")
-                index_code = 'sh.000903'
-                index_name = '中证100'
-
-            # 获取成分股
-            stock_pool = get_index_constituent_stocks(index_code=index_code)
-
-            if stock_pool is None or len(stock_pool) == 0:
-                print("\n✗ 获取成分股失败")
-                return
-
-            print(f"\n✓ 成功获取{index_name}成分股: {len(stock_pool)}只")
-
-        else:
-            # 使用自定义股票池
-            print("\n使用自定义股票池...")
-            stock_pool = get_custom_stock_pool()
-
-    except Exception as e:
-        print(f"\n✗ 初始化失败: {e}")
-        bs.logout()
-        return
-
-    # 定义股票池（仅在choice=3时使用）
-    def get_custom_stock_pool():
-        return {
-        '000001': '平安银行',
-        '000002': '万科A',
-        '600036': '招商银行',
-        '600519': '贵州茅台',
-        '000858': '五粮液',
-        '601318': '中国平安',
-        '600276': '恒瑞医药',
-        '000333': '美的集团',
-        '600887': '伊利股份',
-        '601166': '兴业银行',
-        '000651': '格力电器',
-        '601888': '中国中免',
-        '600000': '浦发银行',
-        '600030': '中信证券',
-        '601398': '工商银行',
-        '601988': '中国银行',
-        '601328': '交通银行',
-        '600016': '民生银行',
-        '000725': '京东方A',
-        '601012': '隆基绿能',
-        '002475': '立讯精密',
-        '300750': '宁德时代',
-        '002594': '比亚迪',
-        '000568': '泸州老窖',
-        '000596': '古井贡酒',
-        '603288': '海天味业',
-        '600690': '海尔智家',
-        '000338': '潍柴动力',
-        '600031': '三一重工',
-        '601688': '华泰证券',
-        '601166': '兴业银行',
-        '600585': '海螺水泥',
-        '600009': '上海机场',
-        '600048': '保利发展',
-        '000876': '新希望',
-        '002271': '东方雨虹',
-        '002714': '牧原股份',
-        '600809': '山西汾酒',
-        '603259': '药明康德',
-        '300059': '东方财富',
-        '600104': '上汽集团',
-        '601633': '长城汽车',
-        '002142': '宁波银行',
-        '601288': '农业银行',
-        '600196': '复星医药',
-        '600588': '用友网络',
-        '002230': '科大讯飞',
-        '000063': '中兴通讯',
-        '600050': '中国联通',
-        '600019': '宝钢股份',
-        '601857': '中国石油',
-        '601088': '中国神华',
-        '600028': '中国石化',
-        '000876': '新希望',
-        '002508': '老板电器',
-        '600183': '生益科技',
-        '600118': '中国卫星',
-        '002460': '赣锋锂业',
-        '002049': '紫光国微',
-        '688981': '中芯国际',
-        '002415': '海康威视',
-        '300124': '汇川技术',
-        '300014': '亿纬锂能',
-        '688599': '天合光能',
-        '600801': '华新水泥',
-        '601919': '中远海控',
-        '600845': '宝信软件',
-        '000069': '华侨城A',
-        '000100': 'TCL科技',
-        '600340': '华夏幸福',
-        '000166': '申万宏源',
-        '600999': '招商证券',
-        '601901': '方正证券',
-        '601211': '国泰君安',
-        '002352': '顺丰控股',
-        '002027': '分众传媒',
-        '600760': '中航沈飞',
-        '002410': '广联达',
-        '300760': '迈瑞医疗',
-        '688111': '金山办公',
-        '300015': '爱尔眼科',
-        '600406': '国电南瑞',
-        '002129': 'TCL中环',
-        '600893': '航发动力',
-        '601899': '紫金矿业',
-        '601336': '新华保险',
-        '601601': '中国太保',
-        '601628': '中国人寿',
-        '002736': '国信证券',
-        '600109': '国金证券',
-        '002648': '卫星化学',
-        '601601': '中国太保',
-        '600346': '恒力石化',
-        '000799': '酒鬼酒',
-            '600132': '重庆啤酒',
-            '600872': '中炬高新'
-        }
-
-    # 下载参数
-    start_date = "2022-01-01"
-    end_date = "2025-11-21"
-    output_dir = "stock_data"
 
     print(f"\n准备下载 {len(stock_pool)} 只股票")
     print(f"时间范围: {start_date} ~ {end_date}")
@@ -639,14 +581,17 @@ def main():
         bs.logout()
         return
 
-    # 批量下载（包含上证指数和中证100指数）
+    # 批量下载
     try:
-        batch_download(stock_pool, start_date, end_date, output_dir, download_index=True)
+        batch_download(stock_pool, start_date, end_date, output_dir, download_index=download_index)
 
         # 如果是中证100，额外下载中证100指数数据
-        if 'index_code' in locals() and index_code == 'sh.000903':
-            print("\n下载中证100指数数据...")
-            download_index_data('sh.000903', '中证100', start_date, end_date, output_dir)
+        try:
+            if 'config' in dir() and config.STOCK_POOL_TYPE == 'zz100':
+                print("\n下载中证100指数数据...")
+                download_index_data('sh.000903', '中证100', start_date, end_date, output_dir)
+        except:
+            pass
 
     finally:
         bs.logout()

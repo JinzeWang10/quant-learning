@@ -31,7 +31,14 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import matplotlib
 import seaborn as sns
-from hs300_stocks import get_hs300_stock_pool  # 导入沪深300成分股
+
+# 尝试导入配置文件
+try:
+    import config
+    USE_CONFIG = True
+except ImportError:
+    USE_CONFIG = False
+    from hs300_stocks import get_hs300_stock_pool  # 导入沪深300成分股
 
 matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial']  # 中文字体
 matplotlib.rcParams['axes.unicode_minus'] = False  # 负号显示
@@ -860,45 +867,61 @@ def plot_backtest_results(strategy, initial_cash, final_value, start_date, end_d
 
 def main():
     """
-    主程序入口
+    主程序入口（从config.py读取配置）
 
     完整流程:
-        1. 定义股票池和时间划分
-        2. 训练随机森林模型（或加载已有模型）
-        3. 运行回测验证策略
-        4. 输出收益和交易统计
+        1. 加载配置文件
+        2. 定义股票池和时间划分
+        3. 训练随机森林模型
+        4. 运行回测验证策略
+        5. 输出收益和交易统计
     """
     print("="*80)
     print("基于随机森林的最优选股回测策略")
     print("="*80)
 
-    # ===== 第一步：定义股票池 =====
-    # 使用沪深300成分股（300只A股核心股票）
-    # 沪深300：A股市场最具代表性的大中盘指数
-    # 特点：
-    #   - 300只股票，样本充足，训练数据更丰富
-    #   - 覆盖沪深两市，行业分布均衡
-    #   - 市值覆盖面广：既有千亿市值龙头，也有百亿成长股
-    #   - 流动性好，数据质量高
-    stock_pool = get_hs300_stock_pool()
+    # ===== 第一步：加载配置 =====
+    if USE_CONFIG:
+        print("\n✓ 使用 config.py 配置文件")
 
-    print(f"股票池: 沪深300成分股")
-    print(f"股票数量: {len(stock_pool)}只")
-    print(f"覆盖行业: 金融(60)、消费(50)、科技(50)、医药(40)、新能源(30)、周期(40)、能源(20)、工业(30)、地产(10)、传媒(10)")
+        # 验证配置
+        if not config.validate_config():
+            print("\n请先修改 config.py 文件，确保配置正确")
+            return
 
-    # ===== 第二步：定义时间划分（严格时间序列） =====
-    # 训练期：用于训练模型，不能包含回测期数据
-    TRAIN_START = '2022-01-01'   # 训练开始日期
-    TRAIN_END = '2025-06-30'     # 训练结束日期
+        # 从配置文件读取参数
+        stock_pool = config.get_stock_pool()
+        TRAIN_START = config.TRAIN_START_DATE
+        TRAIN_END = config.TRAIN_END_DATE
+        BACKTEST_START = config.BACKTEST_START_DATE
+        BACKTEST_END = config.BACKTEST_END_DATE
+        initial_cash = config.INITIAL_CASH
 
-    # 回测期：模拟真实交易，验证策略收益
-    BACKTEST_START = '2025-07-01'  # 回测开始日期（必须晚于训练期）
-    BACKTEST_END = '2025-11-21'    # 回测结束日期
+        print(f"\n股票池: {config.STOCK_POOL_TYPE}")
+        print(f"股票数量: {len(stock_pool)}只")
+        print(f"训练期: {TRAIN_START} ~ {TRAIN_END}")
+        print(f"回测期: {BACKTEST_START} ~ {BACKTEST_END}")
+        print(f"初始资金: {initial_cash:,}元")
+    else:
+        print("\n⚠️  未找到 config.py，使用默认配置")
 
-    # ===== 第三步：训练模型 =====
+        # 使用默认配置
+        stock_pool = get_hs300_stock_pool()
+        TRAIN_START = '2022-01-01'
+        TRAIN_END = '2025-06-30'
+        BACKTEST_START = '2025-07-01'
+        BACKTEST_END = '2025-11-21'
+        initial_cash = 100000
+
+        print(f"股票池: 沪深300成分股")
+        print(f"股票数量: {len(stock_pool)}只")
+        print(f"训练期: {TRAIN_START} ~ {TRAIN_END}")
+        print(f"回测期: {BACKTEST_START} ~ {BACKTEST_END}")
+
+    # ===== 第二步：训练模型 =====
     print("\n开始训练模型...")
 
-    # 3.1 准备训练数据
+    # 2.1 准备训练数据
     result = prepare_training_data(stock_pool, TRAIN_START, TRAIN_END)
     if result is None:
         print("\n错误: 无法加载训练数据")
@@ -907,15 +930,17 @@ def main():
 
     combined, feature_cols = result
 
-    # 3.2 训练随机森林模型
+    # 2.2 训练随机森林模型
     model, feature_cols = train_rf_model(combined, feature_cols)
 
-    # 3.3 保存模型供每日预测使用
+    # 2.3 保存模型供每日预测使用
     print(f"\n{'='*80}")
     print("保存模型...")
     print(f"{'='*80}")
 
     import pickle
+    model_save_path = config.MODEL_SAVE_PATH if USE_CONFIG else 'rf_model.pkl'
+
     model_data = {
         'model': model,
         'feature_cols': feature_cols,
@@ -925,22 +950,22 @@ def main():
         'train_end': TRAIN_END
     }
 
-    with open('rf_model.pkl', 'wb') as f:
+    with open(model_save_path, 'wb') as f:
         pickle.dump(model_data, f)
 
-    print("✓ 模型已保存到: rf_model.pkl")
+    print(f"✓ 模型已保存到: {model_save_path}")
     print(f"  - 股票池: {len(stock_pool)} 只")
     print(f"  - 特征数: {len(feature_cols)} 个")
     print(f"  - 训练时间: {model_data['train_date']}")
 
-    # ===== 第四步：运行回测 =====
+    # ===== 第三步：运行回测 =====
     final_value, total_return = run_backtest(
         model=model,
         feature_cols=feature_cols,
         stock_pool=stock_pool,
         backtest_start=BACKTEST_START,
         backtest_end=BACKTEST_END,
-        initial_cash=100000
+        initial_cash=initial_cash
     )
 
     print(f"\n{'='*80}")
